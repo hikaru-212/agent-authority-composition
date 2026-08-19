@@ -1,6 +1,6 @@
 """Structured and terminal-facing checks for the final deterministic demo."""
 
-from experiments.indirect_authority_escalation.demo import (
+from demo import (
     render_demo,
     run_demo,
     run_direct_scenario,
@@ -8,7 +8,7 @@ from experiments.indirect_authority_escalation.demo import (
     run_positive_control,
     run_vulnerable_scenario,
 )
-from experiments.indirect_authority_escalation.model import (
+from model import (
     AuthorityPromotionDecision,
     PermissionDecision,
     Proposition,

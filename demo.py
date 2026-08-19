@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .model import (
+from model import (
     AcceptedStockReplenished,
     AppendResult,
     AuthorityEvidence,

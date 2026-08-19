@@ -2,7 +2,7 @@
 
 import pytest
 
-from experiments.indirect_authority_escalation.model import (
+from model import (
     AuthorityEvidence,
     AuthorityPromotionDecision,
     AuthoritativeInventoryStore,
