@@ -139,14 +139,28 @@ Follow the material in progressively greater depth:
    [counterexample](tests/test_model.py), and
    [semantic admission](tests/test_semantic_authority_admission.py).
 
-Run the demonstration from the repository root:
+## Reproducible setup
+
+From the repository root, create and activate a virtual environment, then
+install the test dependency:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Run the deterministic executable demonstration:
 
 ```bash
 python demo.py
 ```
 
-Run the tests in an environment where `pytest` is already available:
+Run the verification suite:
 
 ```bash
 pytest -q
 ```
+
+The demo runtime uses only the Python standard library. `pytest` is required
+only for the test suite.

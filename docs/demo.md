@@ -238,9 +238,20 @@ SEMANTICALLY GOVERNED REJECTION
 AUTHORIZED POSITIVE CONTROL
 ```
 
-## Run the demo
+## Environment setup
 
 From the repository root, using Python 3.10 or later:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+The demo runtime uses only the Python standard library. The requirements file
+installs `pytest` for the verification suite.
+
+## Run the demo
 
 ```bash
 python demo.py
@@ -252,8 +263,7 @@ policy.
 
 ## Run the tests
 
-The test suite uses `pytest`; run it in an environment where `pytest` is
-already available:
+After installing dependencies with `requirements.txt`, run the verification suite:
 
 ```bash
 pytest -q
