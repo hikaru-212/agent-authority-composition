@@ -135,8 +135,9 @@ Follow the material in progressively greater depth:
    implementation map, test coverage, and experimental boundaries.
 4. [Demo source](demo.py) and [model source](model.py) — the deterministic
    implementation.
-5. Tests: [orchestration](test_demo.py), [counterexample](test_model.py), and
-   [semantic admission](test_semantic_authority_admission.py).
+5. Tests: [orchestration](tests/test_demo.py),
+   [counterexample](tests/test_model.py), and
+   [semantic admission](tests/test_semantic_authority_admission.py).
 
 Run the demonstration from the repository root:
 
@@ -147,5 +148,5 @@ python demo.py
 Run the tests in an environment where `pytest` is already available:
 
 ```bash
-python -m pytest -q
+pytest -q
 ```

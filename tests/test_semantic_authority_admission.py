@@ -1,6 +1,11 @@
 """Executable PR3 semantic authority-admission cases and controls."""
 
+import sys
+from pathlib import Path
+
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from model import (
     AuthorityEvidence,

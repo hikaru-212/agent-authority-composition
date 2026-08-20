@@ -1,5 +1,10 @@
 """Structured and terminal-facing checks for the final deterministic demo."""
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from demo import (
     render_demo,
     run_demo,

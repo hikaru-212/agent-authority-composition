@@ -256,7 +256,7 @@ The test suite uses `pytest`; run it in an environment where `pytest` is
 already available:
 
 ```bash
-python -m pytest -q
+pytest -q
 ```
 
 The suite covers direct denial, the vulnerable composed path, governed
@@ -273,14 +273,13 @@ model.py
 = local capability graph, candidate/fact types, semantic admission,
   modeled evidence issuance, and authoritative store
 
-test_demo.py
-= four-case orchestration and rendered-output checks
-
-test_model.py
-= direct-denial and vulnerable-composition counterexamples
-
-test_semantic_authority_admission.py
-= governed rejection, positive control, issuance, and mismatch checks
+tests/
+├── test_demo.py
+│   = four-case orchestration and rendered-output checks
+├── test_model.py
+│   = direct-denial and vulnerable-composition counterexamples
+└── test_semantic_authority_admission.py
+    = governed rejection, positive control, issuance, and mismatch checks
 ```
 
 The model and demo are deliberately single-process, synchronous,
