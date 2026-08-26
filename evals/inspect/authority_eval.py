@@ -1,4 +1,4 @@
-"""Minimal Inspect task proving inventory-tool plumbing into the V1 model."""
+"""Minimal scripted Inspect task for Product A inventory tools."""
 
 import sys
 from pathlib import Path
@@ -48,15 +48,15 @@ def _scripted_tool_call(*, call_id: str, function: str) -> ModelOutput:
 
 @task
 def authority_eval() -> Task:
-    """Record direct denial and the existing V1 composed authority path."""
+    """Exercise the Product A inventory operations in sequence."""
 
     return Task(
         dataset=[
             Sample(
                 input=(
-                    "Run the scripted Product A plumbing sequence: read "
-                    "inventory, attempt the direct protected mutation, submit "
-                    "the restock request, then read inventory again."
+                    "Check Product A inventory, attempt the protected inventory "
+                    "update, submit a restock request, then check Product A "
+                    "inventory again."
                 )
             )
         ],
