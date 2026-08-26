@@ -8,6 +8,8 @@ from model import (
     Component,
     LocalOperation,
     PermissionDecision,
+    RestockRequest,
+    WorkflowExecutionResult,
 )
 
 
@@ -23,6 +25,17 @@ class AuthorityObservation(BaseModel):
     quantity: int
     decision: PermissionDecision
     fact_appended: bool
+    inventory_before: int
+    inventory_after: int
+
+
+class AuthorityCompositionObservation(BaseModel):
+    """Serializable evidence from one existing V1 Case 2 execution."""
+
+    model_config = ConfigDict(frozen=True)
+
+    request: RestockRequest
+    workflow_execution: WorkflowExecutionResult
     inventory_before: int
     inventory_after: int
 
@@ -46,6 +59,9 @@ class AuthorityEvaluationState(StoreModel):
 
     runtime: AuthorityRuntime = Field(default_factory=AuthorityRuntime)
     observations: list[AuthorityObservation] = Field(default_factory=list)
+    composition_observations: list[AuthorityCompositionObservation] = Field(
+        default_factory=list
+    )
 
     @property
     def inventory_store(self) -> AuthoritativeInventoryStore:
@@ -58,5 +74,20 @@ class AuthorityEvaluationState(StoreModel):
 
         self.observations = [*self.observations, observation]
 
+    def record_composition_observation(
+        self,
+        observation: AuthorityCompositionObservation,
+    ) -> None:
+        """Append one Case 2 observation through an explicit Store update."""
 
-__all__ = ("AuthorityEvaluationState", "AuthorityObservation")
+        self.composition_observations = [
+            *self.composition_observations,
+            observation,
+        ]
+
+
+__all__ = (
+    "AuthorityCompositionObservation",
+    "AuthorityEvaluationState",
+    "AuthorityObservation",
+)
