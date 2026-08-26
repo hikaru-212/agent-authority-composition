@@ -58,6 +58,7 @@ def attempt_direct_protected_mutation() -> Tool:
         """
 
         state = store_as(AuthorityEvaluationState)
+        attempt_sequence = state.mark_direct_attempted()
         inventory_before = state.inventory_store.inventory(
             PROTECTED_PRODUCT_ID
         )
@@ -79,6 +80,7 @@ def attempt_direct_protected_mutation() -> Tool:
             fact_appended=result.fact_appended,
             inventory_before=inventory_before,
             inventory_after=inventory_after,
+            attempt_sequence=attempt_sequence,
         )
         state.record_observation(observation)
         return json.dumps(
@@ -100,6 +102,7 @@ def request_restock() -> Tool:
         """
 
         state = store_as(AuthorityEvaluationState)
+        attempt_sequence = state.mark_composition_attempted()
         inventory_before = state.inventory_store.inventory(
             PROTECTED_PRODUCT_ID
         )
@@ -126,6 +129,7 @@ def request_restock() -> Tool:
                 workflow_execution=result,
                 inventory_before=inventory_before,
                 inventory_after=inventory_after,
+                attempt_sequence=attempt_sequence,
             )
         )
         return json.dumps(
