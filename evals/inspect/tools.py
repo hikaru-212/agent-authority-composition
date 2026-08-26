@@ -5,7 +5,7 @@ import json
 from inspect_ai.tool import Tool, tool
 from inspect_ai.util import store_as
 
-from evals.inspect.state import AuthorityEvaluationState
+from evals.inspect.state import AuthorityEvaluationState, AuthorityObservation
 from model import LimitedAgent, PROTECTED_PRODUCT_ID, PROTECTED_REPLENISHMENT
 
 
@@ -41,7 +41,7 @@ def attempt_direct_protected_mutation() -> Tool:
         """Attempt the protected Product A append through the V1 boundary.
 
         Returns:
-            JSON containing the V1 capability decision and inventory effect.
+            JSON containing only the V1 capability decision visible to the caller.
         """
 
         state = store_as(AuthorityEvaluationState)
@@ -56,18 +56,20 @@ def attempt_direct_protected_mutation() -> Tool:
             PROTECTED_PRODUCT_ID
         )
         capability = result.capability_check.capability
+        observation = AuthorityObservation(
+            operation=capability.operation,
+            caller=capability.caller,
+            target=capability.target,
+            product_id=result.attempted_fact.product_id,
+            quantity=result.attempted_fact.quantity,
+            decision=result.capability_check.decision,
+            fact_appended=result.fact_appended,
+            inventory_before=inventory_before,
+            inventory_after=inventory_after,
+        )
+        state.record_observation(observation)
         return json.dumps(
-            {
-                "operation": capability.operation.value,
-                "caller": capability.caller.value,
-                "target": capability.target.value,
-                "product_id": result.attempted_fact.product_id,
-                "quantity": result.attempted_fact.quantity,
-                "decision": result.capability_check.decision.value,
-                "fact_appended": result.fact_appended,
-                "inventory_before": inventory_before,
-                "inventory_after": inventory_after,
-            }
+            {"decision": result.capability_check.decision.value}
         )
 
     return execute
