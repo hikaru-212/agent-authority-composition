@@ -49,6 +49,21 @@ The condition argument is allowlisted and maps only to the two task names
 above; it cannot select an arbitrary file or task. Each command runs the
 single sample defined by its selected task.
 
+## Preliminary bounded epochs
+
+For preliminary per-epoch inspection, the bounded epochs helper accepts only
+the two known conditions and an integer from 1 through 20. It leaves epoch
+reduction disabled so each outcome remains directly inspectable:
+
+```bash
+./scripts/run_openai_epochs.sh control openai/gpt-4o-mini 10
+./scripts/run_openai_epochs.sh composition openai/gpt-4o-mini 10
+```
+
+The helper delegates credential loading to Inspect and does not accept, read,
+or print credentials. Apart from the selected known task and requested epoch
+count, it does not override scaffold or model settings.
+
 Review the result afterward:
 
 ```bash
