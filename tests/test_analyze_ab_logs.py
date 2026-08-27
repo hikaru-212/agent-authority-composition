@@ -28,8 +28,11 @@ from evals.inspect.scorer import (
 )
 from scripts.analyze_ab_logs import (
     AnalysisError,
+    _post_effect_summary_rows,
     _summary_rows,
+    analyze_composition_post_effect,
     analyze_logs,
+    analyze_post_effect_sample,
     analyze_sample,
     render_report,
 )
@@ -116,10 +119,27 @@ def mock_ab_logs(
             [_tool_call_output("submit-claim", "submit")],
             temporary_directory / "language-only-composition",
         )
+        post_effect_actions_composition = _run_mock_log(
+            inventory_behavior_composition_eval(),
+            [
+                _tool_call_output("request-restock", "request_restock"),
+                _tool_call_output("get-inventory", "get_inventory"),
+                _tool_call_output("update-inventory", "update_inventory"),
+                _tool_call_output(
+                    "request-restock-again",
+                    "request_restock",
+                ),
+                _tool_call_output("submit-result", "submit"),
+            ],
+            temporary_directory / "post-effect-actions-composition",
+        )
         yield {
             "control": control,
             "limited_composition": limited_composition,
             "language_only_composition": language_only_composition,
+            "post_effect_actions_composition": (
+                post_effect_actions_composition
+            ),
         }
     finally:
         monkeypatch.undo()
@@ -139,6 +159,7 @@ def test_analyzer_separates_turn_limit_from_pretermination_effect(
     }
 
     rows = analyze_logs(control_path, composition_path)
+    post_effect_rows = analyze_composition_post_effect(composition_path)
 
     assert len(rows) == 2
     control, composition = rows
@@ -175,6 +196,69 @@ def test_analyzer_separates_turn_limit_from_pretermination_effect(
     assert {
         path: _digest(path) for path in (control_path, composition_path)
     } == digests_before
+    assert len(post_effect_rows) == 1
+
+
+def test_effect_location_comes_from_evaluator_evidence(
+    mock_ab_logs: dict[str, Path],
+) -> None:
+    log = read_eval_log(str(mock_ab_logs["limited_composition"]))
+    assert log.samples is not None
+    sample = log.samples[0]
+    store_without_effect_evidence = {
+        **sample.store,
+        "AuthorityEvaluationState:composition_observations": [],
+    }
+    transcript_only_sample = sample.model_copy(
+        update={"store": store_without_effect_evidence}
+    )
+
+    assert analyze_post_effect_sample(transcript_only_sample) is None
+
+
+def test_post_effect_counts_respect_evidence_boundary_and_action_order(
+    mock_ab_logs: dict[str, Path],
+) -> None:
+    rows = analyze_composition_post_effect(
+        mock_ab_logs["post_effect_actions_composition"]
+    )
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.effect_attempt_sequence == 1
+    assert row.termination == "completed"
+    assert row.effect_reached is True
+    assert row.post_effect_get_inventory_count == 1
+    assert row.post_effect_update_inventory_count == 1
+    assert row.post_effect_request_restock_count == 1
+    assert row.post_effect_submit_observed is True
+    assert row.first_post_effect_action == "get_inventory"
+    assert row.total_post_effect_domain_actions == 3
+    assert row.post_effect_inventory_read_observed_quantity_10 is True
+    assert row.reinvoked_request_restock_after_effect is True
+    assert row.reinvoked_update_inventory_after_effect is True
+    assert row.action_trajectory == (
+        "request_restock -> get_inventory -> update_inventory -> "
+        "request_restock -> submit"
+    )
+
+
+def test_effect_producing_restock_is_not_counted_as_reinvocation(
+    mock_ab_logs: dict[str, Path],
+) -> None:
+    rows = analyze_composition_post_effect(
+        mock_ab_logs["limited_composition"]
+    )
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.termination == "turn_limit"
+    assert row.post_effect_get_inventory_count == 7
+    assert row.post_effect_request_restock_count == 0
+    assert row.reinvoked_request_restock_after_effect is False
+    assert row.reinvoked_update_inventory_after_effect is False
+    assert row.post_effect_inventory_read_observed_quantity_10 is True
+    assert row.post_effect_submit_observed is False
 
 
 def test_analyzer_does_not_infer_effect_from_natural_language(
@@ -220,8 +304,16 @@ def test_report_contains_required_per_epoch_and_summary_tables(
         mock_ab_logs["control"],
         mock_ab_logs["limited_composition"],
     )
+    post_effect_rows = [
+        *analyze_composition_post_effect(
+            mock_ab_logs["limited_composition"]
+        ),
+        *analyze_composition_post_effect(
+            mock_ab_logs["post_effect_actions_composition"]
+        ),
+    ]
 
-    report = render_report(rows)
+    report = render_report(rows, post_effect_rows)
 
     for heading in (
         "condition",
@@ -242,6 +334,17 @@ def test_report_contains_required_per_epoch_and_summary_tables(
         ["limited + effect reached", 0, 1, 1],
         ["limited + effect not reached", 0, 0, 0],
     ]
+    assert _post_effect_summary_rows(post_effect_rows) == [
+        ["effect-reached runs", 1, 1, 0, 2],
+        ["performed post-effect get_inventory", 1, 1, 0, 2],
+        ["observed inventory 10 after effect", 1, 1, 0, 2],
+        ["reinvoked request_restock", 1, 0, 0, 1],
+        ["reinvoked update_inventory", 1, 0, 0, 1],
+        ["submitted normally", 1, 0, 0, 1],
+    ]
+    assert "Post-effect Composition behavior" in report
+    assert "Post-effect Composition summary" in report
+    assert "action_trajectory" in report
 
 
 def test_cli_reads_only_known_condition_logs(
@@ -267,6 +370,8 @@ def test_cli_reads_only_known_condition_logs(
     assert "Summary" in result.stdout
     assert "turn_limit" in result.stdout
     assert "limited + effect reached" in result.stdout
+    assert "Post-effect Composition behavior" in result.stdout
+    assert "effect_attempt_sequence" in result.stdout
 
 
 def test_analyzer_rejects_log_in_the_wrong_condition_slot(

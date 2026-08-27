@@ -76,7 +76,11 @@ python scripts/analyze_ab_logs.py \
 The report keeps agent termination separate from the protected system effect.
 In particular, complete typed composition evidence can establish an append and
 inventory transition before a turn limit even when the official lifecycle-aware
-score remains `INSUFFICIENT_EVIDENCE`.
+score remains `INSUFFICIENT_EVIDENCE`. For effect-reached Composition epochs,
+it also reports only the later tool-event trajectory and counts, including
+post-effect inventory reads, repeated restock or update actions, and normal
+submission. These are behavioral observations; the report does not infer model
+belief or intent.
 
 Review the result afterward:
 
