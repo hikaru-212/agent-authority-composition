@@ -26,8 +26,10 @@ from evals.inspect.scorer import (
     AuthorityBehavioralRelation,
     AuthoritySemanticOutcome,
 )
+from evals.inspect.state import AuthorityEvaluationState
 from scripts.analyze_ab_logs import (
     AnalysisError,
+    _inventory_side_effect_summary_rows,
     _post_effect_summary_rows,
     _summary_rows,
     analyze_composition_post_effect,
@@ -176,6 +178,8 @@ def test_analyzer_separates_turn_limit_from_pretermination_effect(
     assert control.composition_attempted is False
     assert control.protected_effect_reached_before_termination is False
     assert (control.inventory_before, control.inventory_after) == (0, 0)
+    assert control.final_established_inventory == 0
+    assert control.valid_composition_effect_count == 0
 
     assert composition.condition == "composition"
     assert composition.epoch == 1
@@ -193,6 +197,8 @@ def test_analyzer_separates_turn_limit_from_pretermination_effect(
         0,
         10,
     )
+    assert composition.final_established_inventory == 10
+    assert composition.valid_composition_effect_count == 1
     assert {
         path: _digest(path) for path in (control_path, composition_path)
     } == digests_before
@@ -261,6 +267,83 @@ def test_effect_producing_restock_is_not_counted_as_reinvocation(
     assert row.post_effect_submit_observed is False
 
 
+def test_repeated_composition_effects_establish_cumulative_inventory(
+    mock_ab_logs: dict[str, Path],
+) -> None:
+    rows = analyze_logs(
+        mock_ab_logs["control"],
+        mock_ab_logs["post_effect_actions_composition"],
+    )
+    composition = rows[1]
+
+    assert composition.inventory_before == 0
+    assert composition.inventory_after == 20
+    assert composition.final_established_inventory == 20
+    assert composition.valid_composition_effect_count == 2
+
+
+def test_repeated_tool_call_without_complete_effect_evidence_is_not_counted(
+    mock_ab_logs: dict[str, Path],
+) -> None:
+    log = read_eval_log(
+        str(mock_ab_logs["post_effect_actions_composition"])
+    )
+    assert log.samples is not None
+    sample = log.samples[0]
+    state = sample.store_as(AuthorityEvaluationState)
+    assert len(state.composition_observations) == 2
+    store_with_one_complete_effect = {
+        **sample.store,
+        "AuthorityEvaluationState:composition_observations": [
+            state.composition_observations[0]
+        ],
+    }
+    incomplete_second_effect = sample.model_copy(
+        update={"store": store_with_one_complete_effect}
+    )
+    assert sum(
+        event.event == "tool" and event.function == "request_restock"
+        for event in incomplete_second_effect.events
+    ) == 2
+
+    row = analyze_sample("composition", incomplete_second_effect)
+
+    assert row.final_established_inventory == 10
+    assert row.valid_composition_effect_count == 1
+
+
+def test_inconsistent_inventory_transitions_report_unknown(
+    mock_ab_logs: dict[str, Path],
+) -> None:
+    log = read_eval_log(
+        str(mock_ab_logs["post_effect_actions_composition"])
+    )
+    assert log.samples is not None
+    sample = log.samples[0]
+    state = sample.store_as(AuthorityEvaluationState)
+    assert len(state.composition_observations) == 2
+    inconsistent_second_effect = state.composition_observations[1].model_copy(
+        update={"inventory_before": 99, "inventory_after": 109}
+    )
+    inconsistent_store = {
+        **sample.store,
+        "AuthorityEvaluationState:composition_observations": [
+            state.composition_observations[0],
+            inconsistent_second_effect,
+        ],
+    }
+    inconsistent_sample = sample.model_copy(
+        update={"store": inconsistent_store}
+    )
+
+    row = analyze_sample("composition", inconsistent_sample)
+
+    assert row.inventory_before is None
+    assert row.inventory_after is None
+    assert row.final_established_inventory is None
+    assert row.valid_composition_effect_count == 2
+
+
 def test_analyzer_does_not_infer_effect_from_natural_language(
     mock_ab_logs: dict[str, Path],
 ) -> None:
@@ -275,6 +358,8 @@ def test_analyzer_does_not_infer_effect_from_natural_language(
     assert composition.protected_effect_reached_before_termination is False
     assert composition.inventory_before is None
     assert composition.inventory_after is None
+    assert composition.final_established_inventory is None
+    assert composition.valid_composition_effect_count == 0
 
 
 def test_analyzer_reports_other_termination_and_unavailable_score(
@@ -326,6 +411,8 @@ def test_report_contains_required_per_epoch_and_summary_tables(
         "protected_effect_reached_before_termination",
         "inventory_before",
         "inventory_after",
+        "final_established_inventory",
+        "valid_composition_effect_count",
     ):
         assert heading in report
     assert _summary_rows(rows)[:4] == [
@@ -342,6 +429,12 @@ def test_report_contains_required_per_epoch_and_summary_tables(
         ["reinvoked update_inventory", 1, 0, 0, 1],
         ["submitted normally", 1, 0, 0, 1],
     ]
+    assert _inventory_side_effect_summary_rows(rows) == [
+        ["final inventory = 10", 1],
+        ["runs with final inventory > 10", 0],
+        ["runs with more than one valid composition effect", 0],
+    ]
+    assert "Composition inventory side-effect summary" in report
     assert "Post-effect Composition behavior" in report
     assert "Post-effect Composition summary" in report
     assert "action_trajectory" in report

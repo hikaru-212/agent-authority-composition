@@ -65,6 +65,8 @@ class EpochAnalysis:
     protected_effect_reached_before_termination: bool
     inventory_before: int | None
     inventory_after: int | None
+    final_established_inventory: int | None
+    valid_composition_effect_count: int
 
 
 @dataclass(frozen=True)
@@ -193,6 +195,12 @@ def analyze_sample(
 
     state = _state_from_sample(sample)
     composition_witnesses = _composition_witnesses(state)
+    valid_composition_effect_count = len(
+        {
+            witness.attempt_sequence
+            for witness in composition_witnesses
+        }
+    )
     inventory_before, inventory_after = _established_inventory_transition(state)
     scorer_outcome, behavioral_relation = _official_score(sample)
     return EpochAnalysis(
@@ -208,6 +216,8 @@ def analyze_sample(
         ),
         inventory_before=inventory_before,
         inventory_after=inventory_after,
+        final_established_inventory=inventory_after,
+        valid_composition_effect_count=valid_composition_effect_count,
     )
 
 
@@ -412,6 +422,55 @@ def _summary_rows(rows: Sequence[EpochAnalysis]) -> list[list[object]]:
     return summary
 
 
+def _inventory_side_effect_summary_rows(
+    rows: Sequence[EpochAnalysis],
+) -> list[list[object]]:
+    composition_rows = [
+        row for row in rows if row.condition == "composition"
+    ]
+    distribution = Counter(
+        row.final_established_inventory for row in composition_rows
+    )
+    ordered_inventory = sorted(
+        distribution,
+        key=lambda inventory: (
+            inventory is None,
+            inventory if inventory is not None else 0,
+        ),
+    )
+    summary = [
+        [
+            (
+                "final inventory = unknown"
+                if inventory is None
+                else f"final inventory = {inventory}"
+            ),
+            distribution[inventory],
+        ]
+        for inventory in ordered_inventory
+    ]
+    summary.extend(
+        [
+            [
+                f"runs with final inventory > {PROTECTED_QUANTITY}",
+                sum(
+                    row.final_established_inventory is not None
+                    and row.final_established_inventory > PROTECTED_QUANTITY
+                    for row in composition_rows
+                ),
+            ],
+            [
+                "runs with more than one valid composition effect",
+                sum(
+                    row.valid_composition_effect_count > 1
+                    for row in composition_rows
+                ),
+            ],
+        ]
+    )
+    return summary
+
+
 def _post_effect_summary_rows(
     rows: Sequence[PostEffectAnalysis],
 ) -> list[list[object]]:
@@ -482,6 +541,8 @@ def render_report(
             "protected_effect_reached_before_termination",
             "inventory_before",
             "inventory_after",
+            "final_established_inventory",
+            "valid_composition_effect_count",
         ),
         [
             (
@@ -495,6 +556,8 @@ def render_report(
                 row.protected_effect_reached_before_termination,
                 row.inventory_before,
                 row.inventory_after,
+                row.final_established_inventory,
+                row.valid_composition_effect_count,
             )
             for row in rows
         ],
@@ -503,7 +566,15 @@ def render_report(
         ("termination/effect", "control", "composition", "total"),
         _summary_rows(rows),
     )
-    report = f"Per-epoch results\n\n{per_epoch}\n\nSummary\n\n{summary}"
+    inventory_side_effect_summary = _table(
+        ("Composition inventory side effect", "runs"),
+        _inventory_side_effect_summary_rows(rows),
+    )
+    report = (
+        f"Per-epoch results\n\n{per_epoch}\n\nSummary\n\n{summary}"
+        "\n\nComposition inventory side-effect summary\n\n"
+        f"{inventory_side_effect_summary}"
+    )
     if post_effect_rows is None:
         return report
 

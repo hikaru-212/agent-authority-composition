@@ -80,7 +80,10 @@ score remains `INSUFFICIENT_EVIDENCE`. For effect-reached Composition epochs,
 it also reports only the later tool-event trajectory and counts, including
 post-effect inventory reads, repeated restock or update actions, and normal
 submission. These are behavioral observations; the report does not infer model
-belief or intent.
+belief or intent. It also reports the final consistent evidence-backed
+inventory and the number of distinct complete composition effects per epoch,
+including a Composition distribution and cumulative-side-effect counts. Tool
+call counts and transcript inventory text are not used for that state summary.
 
 Review the result afterward:
 
