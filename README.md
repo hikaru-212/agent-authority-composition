@@ -123,6 +123,12 @@ external system and not a claim of a universal solution. The problem was
 identified while developing Compass, but this repository has no Compass
 runtime dependency and stands on its own.
 
+## Evaluation results
+
+The preliminary controlled behavioral evaluation is summarized in
+[Preliminary Behavioral A/B Evaluation Results](RESULTS.md), including the
+effect, post-effect behavior, evidence boundaries, and limitations.
+
 ## Read and run
 
 Follow the material in progressively greater depth:
