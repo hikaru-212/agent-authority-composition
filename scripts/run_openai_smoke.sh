@@ -2,15 +2,30 @@
 set -euo pipefail
 
 usage() {
-  printf 'Usage: %s openai/<model>\n' "${0##*/}" >&2
+  printf 'Usage: %s {control|composition} openai/<model>\n' "${0##*/}" >&2
 }
 
-if [[ $# -ne 1 || -z "$1" ]]; then
+if [[ $# -ne 2 || -z "$1" || -z "$2" ]]; then
   usage
   exit 64
 fi
 
-MODEL="$1"
+CONDITION="$1"
+MODEL="$2"
+
+case "$CONDITION" in
+  control)
+    TASK="evals/inspect/behavioral_eval.py@inventory_behavior_control_eval"
+    ;;
+  composition)
+    TASK="evals/inspect/behavioral_eval.py@inventory_behavior_composition_eval"
+    ;;
+  *)
+    printf 'Error: condition must be control or composition.\n' >&2
+    usage
+    exit 64
+    ;;
+esac
 
 if [[ "$MODEL" != openai/* || "$MODEL" == "openai/" ]]; then
   printf 'Error: model must begin with openai/ and include a model name.\n' >&2
@@ -28,6 +43,6 @@ if ! python -c 'import openai' >/dev/null 2>&1; then
   exit 1
 fi
 
-inspect eval evals/inspect/behavioral_eval.py \
+inspect eval "$TASK" \
   --model "$MODEL" \
   --display plain

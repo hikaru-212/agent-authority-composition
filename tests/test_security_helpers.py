@@ -1,5 +1,6 @@
 """Local, no-network checks for the OpenAI smoke-run security skeleton."""
 
+import os
 import re
 import subprocess
 import tempfile
@@ -42,7 +43,7 @@ def test_env_example_has_names_only_and_git_ignores_secret_env_files() -> None:
     assert _run(["git", "ls-files", "--error-unmatch", ".env"]).returncode != 0
 
 
-def test_smoke_helper_has_no_embedded_key_and_requires_model() -> None:
+def test_smoke_helper_has_no_embedded_key_and_requires_bounded_inputs() -> None:
     source = SMOKE_HELPER.read_text(encoding="utf-8")
 
     assert re.search(r"sk-[A-Za-z0-9_-]{16,}", source) is None
@@ -52,6 +53,10 @@ def test_smoke_helper_has_no_embedded_key_and_requires_model() -> None:
     assert "read " not in source
     assert "command -v inspect" in source
     assert "python -c 'import openai'" in source
+    assert 'case "$CONDITION"' in source
+    assert "behavioral_eval.py@inventory_behavior_control_eval" in source
+    assert "behavioral_eval.py@inventory_behavior_composition_eval" in source
+    assert 'inspect eval "$TASK"' in source
     assert "--model \"$MODEL\"" in source
     assert "--display plain" in source
 
@@ -63,18 +68,82 @@ def test_smoke_helper_has_no_embedded_key_and_requires_model() -> None:
 
 
 def test_smoke_helper_rejects_non_openai_or_missing_model_without_inspect() -> None:
-    wrong_provider = _run([str(SMOKE_HELPER), "other/synthetic-model"])
-    missing_name = _run([str(SMOKE_HELPER), "openai/"])
+    wrong_provider = _run(
+        [str(SMOKE_HELPER), "control", "other/synthetic-model"]
+    )
+    missing_name = _run([str(SMOKE_HELPER), "composition", "openai/"])
+    arbitrary_task = _run(
+        [
+            str(SMOKE_HELPER),
+            "evals/inspect/behavioral_eval.py@inventory_behavior_eval",
+            "openai/synthetic-model",
+        ]
+    )
     too_many_arguments = _run(
-        [str(SMOKE_HELPER), "openai/synthetic-model", "extra"]
+        [
+            str(SMOKE_HELPER),
+            "control",
+            "openai/synthetic-model",
+            "extra",
+        ]
     )
 
     assert wrong_provider.returncode != 0
     assert "model must begin with openai/" in wrong_provider.stderr
     assert missing_name.returncode != 0
     assert "include a model name" in missing_name.stderr
+    assert arbitrary_task.returncode != 0
+    assert "condition must be control or composition" in arbitrary_task.stderr
     assert too_many_arguments.returncode != 0
     assert "Usage:" in too_many_arguments.stderr
+
+
+def test_smoke_helper_routes_allowlisted_conditions_without_network(
+    tmp_path: Path,
+) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_python = fake_bin / "python"
+    fake_python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_python.chmod(0o755)
+    fake_inspect = fake_bin / "inspect"
+    fake_inspect.write_text(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\"\n",
+        encoding="utf-8",
+    )
+    fake_inspect.chmod(0o755)
+    environment = os.environ.copy()
+    environment["PATH"] = f"{fake_bin}{os.pathsep}{environment['PATH']}"
+
+    expected_tasks = {
+        "control": (
+            "evals/inspect/behavioral_eval.py@"
+            "inventory_behavior_control_eval"
+        ),
+        "composition": (
+            "evals/inspect/behavioral_eval.py@"
+            "inventory_behavior_composition_eval"
+        ),
+    }
+    for condition, expected_task in expected_tasks.items():
+        result = _run(
+            [
+                str(SMOKE_HELPER),
+                condition,
+                "openai/synthetic-model",
+            ],
+            env=environment,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == [
+            "eval",
+            expected_task,
+            "--model",
+            "openai/synthetic-model",
+            "--display",
+            "plain",
+        ]
 
 
 def test_security_preflight_passes_for_repository_sources() -> None:

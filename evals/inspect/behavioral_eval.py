@@ -35,12 +35,14 @@ INVENTORY_AGENT_PROMPT = AgentPrompt(
 )
 
 
-def inventory_behavior_agent() -> Agent:
+def inventory_behavior_agent(*, composition_access: bool = True) -> Agent:
     """Create the bounded, provider-independent inventory ReAct agent."""
 
     return react(
         prompt=INVENTORY_AGENT_PROMPT,
-        tools=inventory_behavior_tools(),
+        tools=inventory_behavior_tools(
+            composition_access=composition_access,
+        ),
         attempts=1,
         submit=AgentSubmit(description="Submit the result."),
         retry_refusals=0,
@@ -49,15 +51,17 @@ def inventory_behavior_agent() -> Agent:
     )
 
 
-@task
-def inventory_behavior_eval() -> Task:
-    """Evaluate goal-directed inventory behavior with a selected model."""
-
+def _inventory_behavior_task(*, composition_access: bool) -> Task:
+    """Build one condition while keeping all other task settings shared."""
     return Task(
         dataset=[Sample(input=INVENTORY_BEHAVIOR_PROMPT)],
         setup=setup_authority_scenario(),
         solver=with_authority_episode_completion(
-            as_solver(inventory_behavior_agent())
+            as_solver(
+                inventory_behavior_agent(
+                    composition_access=composition_access,
+                )
+            )
         ),
         scorer=authority_execution_scorer(),
         config=GenerateConfig(parallel_tool_calls=False),
@@ -66,9 +70,32 @@ def inventory_behavior_eval() -> Task:
     )
 
 
+@task
+def inventory_behavior_control_eval() -> Task:
+    """Evaluate behavior without the restock-request tool."""
+
+    return _inventory_behavior_task(composition_access=False)
+
+
+@task
+def inventory_behavior_composition_eval() -> Task:
+    """Evaluate behavior with the restock-request tool."""
+
+    return _inventory_behavior_task(composition_access=True)
+
+
+@task
+def inventory_behavior_eval() -> Task:
+    """Compatibility alias for the composition-enabled task."""
+
+    return _inventory_behavior_task(composition_access=True)
+
+
 __all__ = (
     "INVENTORY_AGENT_PROMPT",
     "INVENTORY_BEHAVIOR_PROMPT",
     "inventory_behavior_agent",
+    "inventory_behavior_composition_eval",
+    "inventory_behavior_control_eval",
     "inventory_behavior_eval",
 )

@@ -1,8 +1,18 @@
 # Inspect behavioral harness
 
-`behavioral_eval.py` is a provider-independent ReAct task. It gives the selected
-model three bounded inventory tools and records the result with the deterministic
-authority evaluator. It does not select or configure a model provider itself.
+`behavioral_eval.py` contains two provider-independent ReAct tasks for a
+controlled tool-access comparison. Both use the same prompt, setup, agent
+instructions, scorer, completion wrapper, limits, generation configuration,
+and one-sample dataset:
+
+- `inventory_behavior_control_eval` exposes `get_inventory` and
+  `update_inventory`.
+- `inventory_behavior_composition_eval` additionally exposes
+  `request_restock`.
+
+ReAct `submit` is available in both. The older `inventory_behavior_eval` name
+remains a compatibility alias for `inventory_behavior_composition_eval`.
+Neither task selects or configures a model provider itself.
 
 ## Security-first OpenAI smoke run
 
@@ -27,12 +37,17 @@ Run the repository hygiene preflight:
 ./scripts/security_preflight.sh
 ```
 
-Then run exactly one behavioral evaluation, supplying the non-secret OpenAI
-model name as the argument:
+Then run exactly one behavioral evaluation per condition, supplying the
+non-secret OpenAI model name at invocation:
 
 ```bash
-./scripts/run_openai_smoke.sh "openai/<model>"
+./scripts/run_openai_smoke.sh control "openai/<model>"
+./scripts/run_openai_smoke.sh composition "openai/<model>"
 ```
+
+The condition argument is allowlisted and maps only to the two task names
+above; it cannot select an arbitrary file or task. Each command runs the
+single sample defined by its selected task.
 
 Review the result afterward:
 

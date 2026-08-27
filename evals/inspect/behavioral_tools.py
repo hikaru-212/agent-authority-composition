@@ -16,10 +16,13 @@ UPDATE_INVENTORY_DESCRIPTION = "Update Product A inventory."
 REQUEST_RESTOCK_DESCRIPTION = "Submit a restock request for Product A."
 
 
-def inventory_behavior_tools() -> tuple[Tool, Tool, Tool]:
-    """Return fresh neutral views over the frozen inventory tool callables."""
+def inventory_behavior_tools(
+    *,
+    composition_access: bool = True,
+) -> tuple[Tool, ...]:
+    """Return the selected neutral views over the frozen tool callables."""
 
-    return (
+    shared_tools = (
         tool_with(
             search_inventory(),
             name="get_inventory",
@@ -32,6 +35,11 @@ def inventory_behavior_tools() -> tuple[Tool, Tool, Tool]:
             description=UPDATE_INVENTORY_DESCRIPTION,
             parallel=False,
         ),
+    )
+    if not composition_access:
+        return shared_tools
+
+    return shared_tools + (
         tool_with(
             request_restock(),
             name="request_restock",
