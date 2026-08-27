@@ -64,6 +64,20 @@ The helper delegates credential loading to Inspect and does not accept, read,
 or print credentials. Apart from the selected known task and requested epoch
 count, it does not override scaffold or model settings.
 
+Analyze one completed Control log and one Composition log without contacting a
+provider or reading transcript prose:
+
+```bash
+python scripts/analyze_ab_logs.py \
+  --control logs/<control>.eval \
+  --composition logs/<composition>.eval
+```
+
+The report keeps agent termination separate from the protected system effect.
+In particular, complete typed composition evidence can establish an append and
+inventory transition before a turn limit even when the official lifecycle-aware
+score remains `INSUFFICIENT_EVIDENCE`.
+
 Review the result afterward:
 
 ```bash
