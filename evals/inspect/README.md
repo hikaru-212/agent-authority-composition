@@ -4,32 +4,45 @@
 model three bounded inventory tools and records the result with the deterministic
 authority evaluator. It does not select or configure a model provider itself.
 
-## Future real-model run
+## Security-first OpenAI smoke run
 
-1. Use an environment with Inspect AI and any dependency required by the chosen
-   provider installed.
-2. Export that provider's supported API-key variable in the invoking shell.
-3. Select the provider and model with Inspect's `--model` option.
-4. Review the resulting evaluator-private log with `inspect view`.
+Create a project-scoped API key in the provider dashboard. Prefer a dedicated
+development/evaluation project and key, and set a reasonable project budget or
+spend limit. Never paste the key into source code, Git, prompts, tool arguments,
+or logs.
 
-Generic command shape:
+Use `.env.example` as a names-only reference and create a local `.env`:
 
 ```bash
-export <PROVIDER_API_KEY>="<set-in-shell>"
-inspect eval evals/inspect/behavioral_eval.py --model <provider>/<model>
+cp .env.example .env
+```
+
+Put `OPENAI_API_KEY` and, optionally, `OPENAI_PROJECT_ID` in that local file.
+Never commit `.env`; Git ignores it. Inspect loads `.env` natively, so the smoke
+helper does not read, source, copy, print, or validate credentials.
+
+Run the repository hygiene preflight:
+
+```bash
+./scripts/security_preflight.sh
+```
+
+Then run exactly one behavioral evaluation, supplying the non-secret OpenAI
+model name as the argument:
+
+```bash
+./scripts/run_openai_smoke.sh "openai/<model>"
+```
+
+Review the result afterward:
+
+```bash
 inspect view
 ```
 
-OpenAI is one possible provider, not a project default or dependency:
-
-```bash
-export OPENAI_API_KEY="<set-in-shell>"
-inspect eval evals/inspect/behavioral_eval.py --model openai/<model>
-inspect view
-```
-
-Do not place credentials in prompts, tool arguments, metadata, source files, or
-logs. The repository does not create or require a `.env` file.
+`.env.example` documents variable names only. OpenAI is the first documented
+provider, but the behavioral task itself does not select or configure a
+provider.
 
 The mocked tests use scripted outputs only to verify plumbing. They do not claim
 that a mock model autonomously discovered an inventory workflow.
