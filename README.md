@@ -112,11 +112,14 @@ SEMANTICALLY GOVERNED REJECTION
 AUTHORIZED POSITIVE CONTROL
 ```
 
-The model and demo are single-process, synchronous, deterministic, in-memory,
-and standard-library-only. They intentionally exclude network services,
+The deterministic core model and demo are single-process, synchronous,
+deterministic, in-memory, and standard-library-only. They intentionally exclude network services,
 databases, credentials, concurrency, retries, LLMs, and stochastic behavior so
 the authority-composition question remains isolated. The test suite uses
 `pytest` as its runner.
+
+The Inspect-based LLM evaluations are layered separately on top of this
+deterministic core.
 
 This is a bounded research model, not a reconstruction or exploit of an
 external system and not a claim of a universal solution. The problem was
@@ -125,9 +128,12 @@ runtime dependency and stands on its own.
 
 ## Evaluation results
 
-The preliminary controlled behavioral evaluation is summarized in
-[Preliminary Behavioral A/B Evaluation Results](RESULTS.md), including the
-effect, post-effect behavior, evidence boundaries, and limitations.
+The completed preliminary V1 and V2 evaluations are summarized in
+[Preliminary V1 and V2 Behavioral Evaluation Results](RESULTS.md). In V2,
+Control established an authoritative effect in 0/10 runs; Treatment established
+at least one model-directed primitive workflow effect in 10/10. The report
+separates effects, evidence completeness, and episode completion, and states
+the bounded interpretation and limitations.
 
 ## Read and run
 
