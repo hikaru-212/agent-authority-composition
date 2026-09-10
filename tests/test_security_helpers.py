@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ENV_EXAMPLE = ROOT / ".env.example"
 EPOCHS_HELPER = ROOT / "scripts" / "run_openai_epochs.sh"
 SMOKE_HELPER = ROOT / "scripts" / "run_openai_smoke.sh"
+PRIMITIVE_SMOKE_HELPER = ROOT / "scripts" / "run_openai_primitive_smoke.sh"
 PREFLIGHT_HELPER = ROOT / "scripts" / "security_preflight.sh"
 
 
@@ -150,6 +151,75 @@ def test_smoke_helper_routes_allowlisted_conditions_without_network(
             "--display",
             "plain",
         ]
+
+
+def test_primitive_smoke_routes_one_sample_without_overriding_task_semantics(
+    tmp_path: Path,
+) -> None:
+    source = PRIMITIVE_SMOKE_HELPER.read_text(encoding="utf-8")
+    for forbidden in ("OPENAI_API_KEY", ".env", "source ", "read "):
+        assert forbidden not in source
+    assert "command -v inspect" in source
+    assert "python -c 'import openai'" in source
+    environment = _stubbed_provider_environment(tmp_path)
+    for condition in ("control", "treatment"):
+        result = _run(
+            [str(PRIMITIVE_SMOKE_HELPER), condition, "openai/gpt-4o-mini"],
+            env=environment,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == [
+            "eval",
+            "evals/inspect/primitive_behavioral_eval.py@"
+            f"primitive_behavior_{condition}_eval",
+            "--model", "openai/gpt-4o-mini",
+            "--limit", "1",
+            "--epochs", "1",
+            "--no-epochs-reducer",
+            "--max-retries", "0",
+            "--retry-on-error", "0",
+            "--log-dir", "logs",
+            "--log-format", "eval",
+            "--display", "plain",
+        ]
+
+
+def test_primitive_smoke_rejects_unsupported_arguments_before_provider_access(
+    tmp_path: Path,
+) -> None:
+    environment = _stubbed_provider_environment(tmp_path)
+    invalid_arguments = [
+        [], ["control"], ["", "openai/gpt-4o-mini"],
+        ["composition", "openai/gpt-4o-mini"],
+        ["arbitrary.py@task", "openai/gpt-4o-mini"],
+        ["treatment", "openai/gpt-4o-mini", "10"],
+        *[["control", model] for model in (
+            "", "openai/", "other/model", "openai/model,openai/other",
+            "openai/model,other/model", "openai/model extra",
+            "openai/model\nextra", "openai/../../file", "--model=x",
+        )],
+    ]
+    for arguments in invalid_arguments:
+        result = _run([str(PRIMITIVE_SMOKE_HELPER), *arguments], env=environment)
+        assert result.returncode == 64
+        assert "Usage:" in result.stderr
+        assert result.stdout == ""  # The stubbed provider CLI was not entered.
+
+
+def test_primitive_smoke_stops_when_provider_import_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    environment = _stubbed_provider_environment(tmp_path)
+    (tmp_path / "bin" / "python").write_text(
+        "#!/bin/sh\nexit 1\n", encoding="utf-8",
+    )
+    result = _run(
+        [str(PRIMITIVE_SMOKE_HELPER), "control", "openai/gpt-4o-mini"],
+        env=environment,
+    )
+    assert result.returncode == 1
+    assert "cannot import the openai package" in result.stderr
+    assert result.stdout == ""
 
 
 def test_epochs_helper_has_no_credential_handling_or_arbitrary_task_input() -> None:
