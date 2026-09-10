@@ -4,6 +4,7 @@ import hashlib
 import json
 import subprocess
 import sys
+from tempfile import mkdtemp
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,14 @@ from test_inspect_primitive_behavioral_eval import _run
 ROOT = Path(__file__).resolve().parents[1]
 CONTROL_SMOKE = ROOT / "logs/2026-09-10T10-53-46-00-00_primitive-behavior-control-eval_7mNJRRkNiDEPNrKQewL9pg.eval"
 TREATMENT_SMOKE = ROOT / "logs/2026-09-10T10-54-57-00-00_primitive-behavior-treatment-eval_6tVSDrnUs8VRzuEoykmSkd.eval"
+
+
+@pytest.fixture
+def worktree_tmp_path():
+    """Keep file-based analyzer inputs inside its required worktree boundary."""
+    base = ROOT / ".pytest_cache" / "primitive-analyzer"
+    base.mkdir(parents=True, exist_ok=True)
+    return Path(mkdtemp(prefix="test-", dir=base))
 
 
 def digest(path):
@@ -143,7 +152,8 @@ def test_trailing_unexecuted_call_keeps_effect_and_limit_separate(tmp_path, monk
     assert summary.total_model_directed_effects == 1 and not summary.model_directed_effect_total_is_exact
 
 
-def test_multiple_logs_keep_exact_and_inexact_subtotals_separate(tmp_path, monkeypatch):
+def test_multiple_logs_keep_exact_and_inexact_subtotals_separate(worktree_tmp_path, monkeypatch):
+    tmp_path = worktree_tmp_path
     _run(tmp_path / "complete", monkeypatch, repeat=True)
     original = AuthorityEvaluationState.record_primitive_observation
 
@@ -207,7 +217,8 @@ def test_missing_or_invalid_snapshot_never_becomes_empty_inventory(tmp_path, mon
     assert summary.final_inventory_distribution == {"unknown": 1}
 
 
-def test_cli_json_round_trip_and_directory_discovery_are_read_only(tmp_path, monkeypatch, capsys):
+def test_cli_json_round_trip_and_directory_discovery_are_read_only(worktree_tmp_path, monkeypatch, capsys):
+    tmp_path = worktree_tmp_path
     sample, _, _, _ = _run(tmp_path, monkeypatch)
     log = next((tmp_path / "logs").glob("*.eval"))
     before = digest(log)
@@ -247,7 +258,8 @@ def test_input_boundary_rejects_non_log_or_escaping_paths(path):
         analyze_logs(control=[Path(path)])
 
 
-def test_input_boundary_rejects_symlink_components_and_empty_directory(tmp_path):
+def test_input_boundary_rejects_symlink_components_and_empty_directory(worktree_tmp_path):
+    tmp_path = worktree_tmp_path
     source = tmp_path / "source"
     source.mkdir()
     alias = tmp_path / "alias"
