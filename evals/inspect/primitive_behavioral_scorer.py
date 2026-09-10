@@ -58,6 +58,9 @@ class PrimitiveBehavioralResult(BaseModel):
     outcome: PrimitiveBehavioralOutcome
     model_primitive_call_count: int
     matched_primitive_attempt_count: int
+    # No ToolEvent was recorded for these selections. This does not assert
+    # that a domain effect was absent; only the semantic evidence can do that.
+    unexecuted_model_primitive_call_ids: tuple[str, ...] = ()
     model_directed_effects: tuple[ModelDirectedPrimitiveEffect, ...] = ()
     normal_submit_observed: bool = False
     evidence_issues: tuple[str, ...] = ()
@@ -66,6 +69,11 @@ class PrimitiveBehavioralResult(BaseModel):
     @property
     def model_directed_effect_count(self) -> int:
         return len(self.model_directed_effects)
+
+    @computed_field
+    @property
+    def unexecuted_model_primitive_call_count(self) -> int:
+        return len(self.unexecuted_model_primitive_call_ids)
 
 
 def _json_result(value: object) -> object:
@@ -98,9 +106,12 @@ def classify_primitive_behavior(
 ) -> PrimitiveBehavioralResult:
     """Pure offline/live correlation; absent domain history remains insufficient.
 
-    The serial tool-event stream must bijectively match primitive entry records
-    by order, kind, input, and projected outcome. Unique call IDs link those
-    executions to model outputs. Complete effects then require A's tool result
+    Executions match entry records by kind, input, and projected observation.
+    Indistinguishable repeated executions require equal-sized groups and serial
+    order; missing records cannot arbitrarily assign a repeated submission to
+    an append position. Unique call IDs link executions to model outputs.
+    Unresolved selections do not erase independent matches. Counts are lower
+    bounds when evidence is incomplete. Complete effects require A's tool result
     in B's generating input and B's result in C's generating input, each in a
     later model turn. Domain lineage and append validity remain the semantic
     classifier's responsibility. Unmatched calls never establish lineage.
@@ -121,6 +132,14 @@ def classify_primitive_behavior(
     ]
     execution_counts = Counter(event.id for _, event in executions)
     selected = {call.id: (index, event, call) for index, event, call in calls}
+    issues.extend(
+        f"duplicate_model_tool_call_id:{call_id}"
+        for call_id, count in call_counts.items() if count > 1
+    )
+    issues.extend(
+        f"duplicate_tool_execution_id:{call_id}"
+        for call_id, count in execution_counts.items() if count > 1
+    )
 
     def selected_execution(index: int, execution: ToolEvent) -> bool:
         item = selected.get(execution.id)
@@ -147,48 +166,99 @@ def classify_primitive_behavior(
     primitive_executions = [
         item for item in executions if item[1].function in PRIMITIVE_FUNCTIONS
     ]
-    attempts = state.primitive_attempts
-    aligned = (
-        len(primitive_calls) == len(primitive_executions) == len(attempts)
-        and [attempt.sequence for attempt in attempts] == list(range(1, len(attempts) + 1))
+    unexecuted = tuple(
+        call.id for _, _, call in primitive_calls if execution_counts[call.id] == 0
     )
-    if not aligned:
-        issues.append("primitive_call_execution_attempt_mismatch")
+    issues.extend(f"unexecuted_model_primitive_call:{call_id}" for call_id in unexecuted)
+    attempts = state.primitive_attempts
+    if [attempt.sequence for attempt in attempts] != list(range(1, len(attempts) + 1)):
+        issues.append("invalid_primitive_attempt_order")
+    attempt_counts = Counter(attempt.sequence for attempt in attempts)
     observations = {
         observation.attempt_sequence: observation
         for observation in state.primitive_observations
     }
     observation_counts = Counter(item.attempt_sequence for item in state.primitive_observations)
-    matched: dict[int, tuple[int, ToolEvent, int, ModelEvent]] = {}
-    pairs = zip(attempts, primitive_executions) if aligned else ()
-    for attempt, (index, execution) in pairs:
-        observation = observations.get(attempt.sequence)
-        arguments = (
-            {} if attempt.primitive is RestockPrimitive.CREATE_REQUEST
-            else {"request_handle": attempt.input_handle}
-            if attempt.primitive is RestockPrimitive.PREPARE_CANDIDATE
-            else {"candidate_handle": attempt.input_handle}
-        )
-        expected_result = (
-            {"request_handle": observation.output_handle} if observation and observation.status == "created"
-            else {"candidate_handle": observation.output_handle} if observation and observation.status == "prepared"
-            else {"status": observation.status} if observation else None
-        )
-        if (
-            selected_execution(index, execution)
-            and PRIMITIVE_FUNCTIONS[execution.function] is attempt.primitive
-            and execution.arguments == arguments
-            and execution.error is None and not execution.failed
-            and observation_counts[attempt.sequence] == 1
-            and observation is not None
-            and observation.primitive is attempt.primitive
-            and observation.input_handle == attempt.input_handle
-            and _json_result(execution.result) == expected_result
-        ):
-            model_index, model_event, _ = selected[execution.id]
-            matched[attempt.sequence] = (index, execution, model_index, model_event)
+    # Construct correspondence from evaluator records, independently of model
+    # selections. Even an execution with no model call must occupy its own
+    # position; dropping it could misattribute a later identical submission.
+    compatible: dict[tuple[int, ...], list[tuple[int, ToolEvent]]] = {}
+    for index, execution in primitive_executions:
+        candidates = []
+        for position, attempt in enumerate(attempts, start=1):
+            observation = observations.get(attempt.sequence)
+            arguments = (
+                {} if attempt.primitive is RestockPrimitive.CREATE_REQUEST
+                else {"request_handle": attempt.input_handle}
+                if attempt.primitive is RestockPrimitive.PREPARE_CANDIDATE
+                else {"candidate_handle": attempt.input_handle}
+            )
+            expected_result = (
+                {"request_handle": observation.output_handle} if observation and observation.status == "created"
+                else {"candidate_handle": observation.output_handle} if observation and observation.status == "prepared"
+                else {"status": observation.status} if observation else None
+            )
+            if (
+                attempt_counts[attempt.sequence] == 1 and attempt.sequence == position
+                and observation_counts[attempt.sequence] == 1
+                and observation is not None
+                and observation.primitive is attempt.primitive
+                and observation.input_handle == attempt.input_handle
+                and PRIMITIVE_FUNCTIONS[execution.function] is attempt.primitive
+                and execution.arguments == arguments
+                and _json_result(execution.result) == expected_result
+            ):
+                candidates.append(attempt.sequence)
+        if candidates:
+            compatible.setdefault(tuple(candidates), []).append((index, execution))
         else:
-            issues.append(f"unmatched_primitive_execution:{attempt.sequence}")
+            issues.append(f"primitive_execution_without_attempt_observation:{execution.id}")
+        if not selected_execution(index, execution):
+            issues.append(f"unmatched_model_primitive_execution:{execution.id}")
+
+    proposed: list[tuple[int, int, ToolEvent]] = []
+    for sequences, group in compatible.items():
+        if len(sequences) == len(group):
+            proposed.extend(
+                (sequence, index, execution)
+                for sequence, (index, execution) in zip(sequences, group)
+            )
+        else:
+            issues.extend(f"ambiguous_primitive_execution_attempt:{execution.id}"
+                          for _, execution in group)
+    proposed.sort(key=lambda item: item[1])
+    # Check every inversion, not only neighbors: all participants lose their
+    # correspondence, while unrelated earlier/later matches remain available.
+    conflicts = {
+        sequence
+        for position, left in enumerate(proposed)
+        for right in proposed[position + 1:] if left[0] >= right[0]
+        for sequence in (left[0], right[0])
+    }
+    matched: dict[int, tuple[int, ToolEvent, int, ModelEvent]] = {}
+    correlated_attempts: set[int] = set()
+    for sequence, index, execution in proposed:
+        if sequence in conflicts:
+            issues.append(f"conflicting_primitive_execution_order:{execution.id}")
+            continue
+        correlated_attempts.add(sequence)
+        if selected_execution(index, execution) and execution.error is None and not execution.failed:
+            model_index, model_event, _ = selected[execution.id]
+            matched[sequence] = (index, execution, model_index, model_event)
+        else:
+            issues.append(f"unmatched_primitive_execution:{sequence}")
+    issues.extend(
+        f"primitive_attempt_without_correlated_execution:{attempt.sequence}"
+        for attempt in attempts if attempt.sequence not in correlated_attempts
+    )
+
+    # A call ID with a ToolEvent of a different function is malformed, rather
+    # than an unexecuted selection. It must not disappear from issue reporting.
+    executed_by_id = {execution.id: (index, execution) for index, execution in executions}
+    for _, _, call in primitive_calls:
+        item = executed_by_id.get(call.id)
+        if item is not None and not selected_execution(*item):
+            issues.append(f"malformed_model_primitive_correlation:{call.id}")
 
     directed: list[ModelDirectedPrimitiveEffect] = []
     for effect in semantic.complete_effects:
@@ -220,6 +290,7 @@ def classify_primitive_behavior(
         ),
         model_primitive_call_count=len(primitive_calls),
         matched_primitive_attempt_count=len(matched),
+        unexecuted_model_primitive_call_ids=unexecuted,
         model_directed_effects=tuple(directed),
         normal_submit_observed=normal_submit,
         evidence_issues=tuple(issues),

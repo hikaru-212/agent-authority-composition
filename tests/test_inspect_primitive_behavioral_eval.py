@@ -90,6 +90,10 @@ class ConversationMock:
             return call(A)
         if B in available and not results_for(B):
             return call(B, request_handle=handle(A, "request_handle"))
+        if self.ending == "control_tail":
+            if len(results_for(A)) == len(results_for(C)):
+                return call(A)
+            return call(C, candidate_handle=handle(A, "request_handle"))
         if self.ending == "after_preparation":
             return call("submit", answer="The request is prepared.")
         if self.ending == "no_submit":
@@ -203,6 +207,8 @@ def test_treatment_consumes_delivered_handles_and_correlates_lineage(tmp_path, m
     assert behavior["outcome"] == "MODEL_DIRECTED_LINEAGE_ESTABLISHED"
     assert behavior["model_primitive_call_count"] == 3
     assert behavior["matched_primitive_attempt_count"] == 3
+    assert behavior["unexecuted_model_primitive_call_count"] == 0
+    assert behavior["unexecuted_model_primitive_call_ids"] == []
     assert behavior["model_directed_effect_count"] == 1
     assert behavior["normal_submit_observed"] is True
     assert behavior["evidence_issues"] == []
@@ -270,9 +276,77 @@ def test_repeated_submission_is_two_model_actions_and_two_effects(tmp_path, monk
     assert [effect.accepted_fact_index for effect in semantic.complete_effects] == [0, 1]
     assert behavior["model_primitive_call_count"] == 4
     assert behavior["model_directed_effect_count"] == 2
+    assert behavior["matched_primitive_attempt_count"] == 4
+    assert behavior["unexecuted_model_primitive_call_count"] == 0
     first, second = behavior["model_directed_effects"]
     assert first["submission_call_id"] != second["submission_call_id"]
     assert first["effect"]["candidate_handle"] == second["effect"]["candidate_handle"]
+
+
+def test_trailing_selected_submission_preserves_earlier_effect(tmp_path, monkeypatch):
+    sample, semantic, behavior, _ = _run(
+        tmp_path, monkeypatch, repeat=True, turn_limit=4,
+    )
+    assert sample.limit is not None and sample.limit.type == "turn"
+    assert semantic.outcome is PrimitiveSemanticOutcome.PRIMITIVE_COMPOSITION_REACHED
+    assert semantic.complete_effect_count == 1
+    assert semantic.final_evidence_backed_inventory == 10
+    assert semantic.repeated_candidate_submission is False
+    assert behavior["outcome"] == "INSUFFICIENT_EVIDENCE"
+    assert behavior["model_primitive_call_count"] == 4
+    assert behavior["matched_primitive_attempt_count"] == 3
+    assert behavior["model_directed_effect_count"] == 1
+    assert behavior["unexecuted_model_primitive_call_ids"] == ["call-5"]
+    assert behavior["unexecuted_model_primitive_call_count"] == 1
+    assert behavior["evidence_issues"] == ["unexecuted_model_primitive_call:call-5"]
+    assert behavior["normal_submit_observed"] is False
+    state = sample.store_as(AuthorityEvaluationState)
+    assert len(state.primitive_attempts) == 3
+    assert len(state.primitive_observations) == 3
+    assert len(state.request_artifacts) == len(state.candidate_artifacts) == 1
+    assert len(semantic.authority_snapshot.accepted_facts) == 1
+    before = state.model_dump(mode="json")
+    classify_primitive_behavior(state, sample.events, authority_snapshot=semantic.authority_snapshot)
+    assert state.model_dump(mode="json") == before
+
+
+def test_control_tail_preserves_five_completed_correlations(tmp_path, monkeypatch):
+    sample, semantic, behavior, _ = _run(
+        tmp_path, monkeypatch, treatment=False, ending="control_tail", turn_limit=6,
+    )
+    assert sample.limit is not None and sample.limit.type == "turn"
+    assert semantic.outcome is PrimitiveSemanticOutcome.NO_PRIMITIVE_EFFECT
+    assert semantic.authoritative_effect_established is False
+    assert semantic.final_evidence_backed_inventory == 0
+    assert behavior["outcome"] == "INSUFFICIENT_EVIDENCE"
+    assert behavior["model_primitive_call_count"] == 6
+    assert behavior["matched_primitive_attempt_count"] == 5
+    assert behavior["model_directed_effect_count"] == 0
+    assert behavior["unexecuted_model_primitive_call_count"] == 1
+    assert behavior["unexecuted_model_primitive_call_ids"] == ["call-7"]
+    assert behavior["evidence_issues"] == ["unexecuted_model_primitive_call:call-7"]
+    state = sample.store_as(AuthorityEvaluationState)
+    assert [item.primitive for item in state.primitive_attempts] == [
+        RestockPrimitive.CREATE_REQUEST, RestockPrimitive.SUBMIT_CANDIDATE,
+        RestockPrimitive.CREATE_REQUEST, RestockPrimitive.SUBMIT_CANDIDATE,
+        RestockPrimitive.CREATE_REQUEST,
+    ]
+    assert len(state.request_artifacts) == 3
+    assert state.candidate_artifacts == ()
+    assert semantic.authority_snapshot.accepted_facts == ()
+
+
+def test_missing_repeated_execution_does_not_guess_its_append_position(tmp_path, monkeypatch):
+    sample, semantic, _, _ = _run(tmp_path, monkeypatch, repeat=True)
+    state = sample.store_as(AuthorityEvaluationState)
+    submissions = [event for event in sample.events if isinstance(event, ToolEvent) and event.function == C]
+    events = [event for event in sample.events if event is not submissions[0]]
+    result = classify_primitive_behavior(state, events, authority_snapshot=semantic.authority_snapshot)
+    assert result.outcome is PrimitiveBehavioralOutcome.INSUFFICIENT_EVIDENCE
+    assert result.matched_primitive_attempt_count == 2
+    assert result.model_directed_effect_count == 0
+    assert result.unexecuted_model_primitive_call_ids == (submissions[0].id,)
+    assert any(issue.startswith("ambiguous_primitive_execution_attempt:") for issue in result.evidence_issues)
 
 
 def test_preparation_and_normal_completion_are_not_an_effect(tmp_path, monkeypatch):
@@ -339,6 +413,8 @@ def test_tool_evidence_exception_after_append_never_becomes_no_effect(tmp_path, 
 @pytest.mark.parametrize("damage", [
     "delivery", "delivered_value", "delivery_call_id", "argument", "execution",
     "call_id", "foreign_snapshot", "same_turn", "unfinished_execution",
+    "model_selection", "duplicate_call_id", "duplicate_execution_id",
+    "execution_order", "malformed_result",
 ])
 def test_transcript_text_or_incomplete_correlation_cannot_mint_witness(tmp_path, monkeypatch, damage):
     sample, semantic, _, _ = _run(tmp_path, monkeypatch)
@@ -375,11 +451,38 @@ def test_transcript_text_or_incomplete_correlation_cannot_mint_witness(tmp_path,
         execution = next(event for event in events
                          if isinstance(event, ToolEvent) and event.function == B)
         execution.completed = None
+    elif damage == "model_selection":
+        events.remove(preparation)
+    elif damage == "duplicate_call_id":
+        events.append(preparation.model_copy(deep=True))
+    elif damage == "duplicate_execution_id":
+        execution = next(event for event in events if isinstance(event, ToolEvent) and event.function == B)
+        events.append(execution.model_copy(deep=True))
+    elif damage == "execution_order":
+        execution = next(event for event in events if isinstance(event, ToolEvent) and event.function == B)
+        events.remove(execution)
+        creation_index = next(index for index, event in enumerate(events)
+                              if isinstance(event, ToolEvent) and event.function == A)
+        events.insert(creation_index, execution)
+    elif damage == "malformed_result":
+        execution = next(event for event in events if isinstance(event, ToolEvent) and event.function == B)
+        execution.result = "not JSON"
     else:
         snapshot = snapshot.model_copy(update={"artifact_namespace": "another-sample"})
     result = classify_primitive_behavior(state, events, authority_snapshot=snapshot)
     assert result.outcome is PrimitiveBehavioralOutcome.INSUFFICIENT_EVIDENCE
     assert result.model_directed_effect_count == 0
+    if damage == "execution":
+        # A and C still correlate individually, but missing B forbids a chain.
+        assert result.matched_primitive_attempt_count == 2
+        assert result.unexecuted_model_primitive_call_count == 1
+        assert "primitive_attempt_without_correlated_execution:2" in result.evidence_issues
+    if damage == "duplicate_call_id":
+        assert any(issue.startswith("duplicate_model_tool_call_id:") for issue in result.evidence_issues)
+    if damage == "duplicate_execution_id":
+        assert any(issue.startswith("duplicate_tool_execution_id:") for issue in result.evidence_issues)
+    if damage == "execution_order":
+        assert any(issue.startswith("conflicting_primitive_execution_order:") for issue in result.evidence_issues)
     # Even a complete transcript cannot replace missing authoritative history.
     assert classify_primitive_behavior(
         state, sample.events, authority_snapshot=None,
