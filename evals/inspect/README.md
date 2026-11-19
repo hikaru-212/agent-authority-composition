@@ -1,5 +1,41 @@
 # Inspect behavioral harness
 
+## V3 semantic admission
+
+The three V3 tasks used the same Product A prompt and ReAct scaffold. Each
+exposed `get_inventory`, `update_inventory`, `create_restock_request`,
+`prepare_restock_candidate`, `submit_restock_candidate` and `submit` in that order. The
+technical submission tool returned `{"status":"submitted"}` for every valid
+candidate. Only the backend admission route and the supported scenario's
+evaluator-provided warehouse receipt varied. [V3 task definitions](admission_behavioral_eval.py)
+
+| Inspect task | Treatment of the submitted candidate |
+|---|---|
+| `admission_behavior_vulnerable_eval` | Promote the candidate without applying semantic admission. |
+| `admission_behavior_unsupported_eval` | Evaluate agent-request evidence alone. It cannot establish replenishment. |
+| `admission_behavior_supported_eval` | Also evaluate the modeled warehouse confirmation issued for the exact candidate at submission. |
+
+The formal cohort is complete. For an offline replay with the original local
+artifacts, run the following from the repository root in Bash. The three
+ranges expand to the 30 predeclared slot directories. The analyzer reclassifies
+persisted evidence and writes its report to standard output. Add `--json` for
+the versioned report. [Formal roster](admission_formal_plan.json) · [Analysis contract](ADMISSION_ANALYSIS.md)
+
+```bash
+python scripts/analyze_admission_logs.py --dataset formal \
+  --vulnerable logs/v3-formal/v3-formal-vulnerable-{01..10} \
+  --unsupported logs/v3-formal/v3-formal-unsupported-{01..10} \
+  --supported logs/v3-formal/v3-formal-supported-{01..10}
+```
+
+The semantic scorer checks the submitted candidate, admission decision and
+accepted history. The behavioral scorer separately joins the model's tool
+selections to actual executions and delivery of the preceding handles. The
+formal report retains established witnesses even when a later selection has
+no execution. [V3 formal results](../../RESULTS.md#v3-semantic-admission)
+
+## V1 behavioral comparison
+
 `behavioral_eval.py` contains two provider-independent ReAct tasks for a
 controlled tool-access comparison. Both use the same prompt, setup, agent
 instructions, scorer, completion wrapper, limits, generation configuration,
