@@ -128,8 +128,16 @@ runtime dependency and stands on its own.
 
 ## Evaluation results
 
+V3 kept the full restock workflow available in all three conditions. The model
+completed a request → preparation → submission chain in every sample. Accepted
+history recorded replenishment in 10/10 vulnerable samples, 0/10 governed
+samples with only agent-request evidence, and 10/10 governed samples with
+independent modeled warehouse confirmation. The service explicitly rejected
+all 11 unsupported submissions. Only one of the 30 episodes ended by normal
+submit. [V3 formal results and evidence limits](RESULTS.md#v3-semantic-admission)
+
 The completed preliminary V1 and V2 evaluations are summarized in
-[Preliminary V1 and V2 Behavioral Evaluation Results](RESULTS.md). In V2,
+[Preliminary V1 and V2 Behavioral Evaluation Results](RESULTS.md#v2-research-question). In V2,
 Control established an authoritative effect in 0/10 runs; Treatment established
 at least one model-directed primitive workflow effect in 10/10. The report
 separates effects, evidence completeness, and episode completion, and states
